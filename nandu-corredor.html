@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Ñandú Corredor</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body {
+    width:100%; height:100%; overflow:hidden;
+    background:#1a1024;
+    font-family: 'Trebuchet MS', 'Segoe UI', sans-serif;
+  }
+  #game-wrap {
+    position:relative;
+    width:100vw; height:100vh;
+    display:flex; align-items:center; justify-content:center;
+  }
+  canvas {
+    display:block;
+    background: linear-gradient(180deg, #1a1024 0%, #3a2140 35%, #7a3a4a 60%, #c96b3f 82%, #e8a84f 100%);
+    touch-action:none;
+  }
+
+  .overlay {
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center;
+    color:#f4ecd8;
+    background: rgba(26,16,36,0.75);
+    backdrop-filter: blur(2px);
+  }
+  .hidden { display:none !important; }
+
+  .title {
+    font-size: clamp(2rem, 6.5vw, 3.6rem);
+    font-weight:800;
+    color:#f4a94f;
+    text-shadow: 0 4px 0 #7a3f18, 0 8px 18px rgba(0,0,0,0.45);
+    margin-bottom: 6px;
+  }
+  .subtitle {
+    font-size: clamp(0.85rem, 2.4vw, 1.05rem);
+    color:#e6d9c4;
+    margin-bottom: 28px;
+    max-width: 420px;
+    line-height:1.5;
+  }
+  .nandu-emoji {
+    font-size: clamp(2.8rem, 9vw, 4.6rem);
+    margin-bottom: 8px;
+    filter: drop-shadow(0 6px 10px rgba(0,0,0,0.4));
+  }
+
+  .btn {
+    background: linear-gradient(180deg, #f4a94f, #d97e2f);
+    border: none;
+    color: #3a1e08;
+    font-weight: 800;
+    font-size: 1.1rem;
+    padding: 14px 36px;
+    border-radius: 999px;
+    cursor: pointer;
+    box-shadow: 0 6px 0 #8a4a1a, 0 10px 20px rgba(0,0,0,0.35);
+    transition: transform 0.08s ease;
+  }
+  .btn:active {
+    transform: translateY(4px);
+    box-shadow: 0 2px 0 #8a4a1a, 0 4px 10px rgba(0,0,0,0.35);
+  }
+
+  .instructions {
+    margin-top: 20px;
+    display:flex; gap:20px; flex-wrap:wrap; justify-content:center;
+    font-size: 0.82rem;
+    color:#c9b99a;
+  }
+  .key {
+    display:inline-block;
+    border: 1px solid #6b5747;
+    border-radius: 6px;
+    padding: 2px 8px;
+    background: rgba(255,255,255,0.06);
+    font-family: monospace;
+  }
+
+  #hud {
+    position:absolute;
+    top:16px; left:16px; right:16px;
+    display:flex; justify-content:space-between;
+    color:#f4ecd8;
+    font-weight:700;
+    font-size: clamp(0.9rem, 2.4vw, 1.1rem);
+    text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    pointer-events:none;
+  }
+  #hud .pill {
+    background: rgba(26,16,36,0.55);
+    border: 1px solid rgba(244,169,79,0.4);
+    padding: 6px 14px;
+    border-radius: 999px;
+  }
+
+  .final-score {
+    font-size: clamp(1.3rem, 4vw, 1.9rem);
+    color:#f4a94f;
+    margin-bottom: 4px;
+    font-weight:800;
+  }
+  .final-label {
+    color:#e6d9c4;
+    margin-bottom: 22px;
+    font-size: 0.95rem;
+  }
+</style>
+</head>
+<body>
+
+<div id="game-wrap">
+  <canvas id="gameCanvas"></canvas>
+
+  <div id="hud" class="hidden">
+    <div class="pill">🏃 <span id="distVal">0</span>m</div>
+    <div class="pill">🏆 <span id="bestVal">0</span>m</div>
+  </div>
+
+  <!-- MENU DE INICIO -->
+  <div id="menu" class="overlay">
+    <div class="nandu-emoji">🦤</div>
+    <div class="title">Ñandú Corredor</div>
+    <div class="subtitle">El ñandú corre solo por la pampa. Saltá para esquivar arbustos, troncos y alambrados. Cada tanto se pone más rápido.</div>
+    <button class="btn" id="startBtn">Empezar a correr</button>
+    <div class="instructions">
+      <span><span class="key">Espacio</span> / <span class="key">↑</span> para saltar</span>
+      <span>📱 en celular: tocá la pantalla</span>
+    </div>
+  </div>
+
+  <!-- PANTALLA FINAL -->
+  <div id="gameOver" class="overlay hidden">
+    <div class="nandu-emoji">💥</div>
+    <div class="final-score" id="finalScore">0 metros</div>
+    <div class="final-label" id="finalLabel">¡Buena corrida!</div>
+    <button class="btn" id="retryBtn">Correr de nuevo</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const menu = document.getElementById('menu');
+  const gameOverScreen = document.getElementById('gameOver');
+  const hud = document.getElementById('hud');
+  const distVal = document.getElementById('distVal');
+  const bestVal = document.getElementById('bestVal');
+  const finalScore = document.getElementById('finalScore');
+  const finalLabel = document.getElementById('finalLabel');
+  const startBtn = document.getElementById('startBtn');
+  const retryBtn = document.getElementById('retryBtn');
+
+  let W, H;
+  function resize(){
+    const wrap = document.getElementById('game-wrap');
+    W = canvas.width = Math.min(wrap.clientWidth, 900);
+    H = canvas.height = Math.min(wrap.clientHeight, 600);
+    groundY = H * 0.82;
+  }
+  window.addEventListener('resize', resize);
+
+  let groundY = 0;
+  let state = 'menu'; // menu | playing | over
+  let distance = 0;
+  let best = 0;
+  let baseSpeed = 260;
+  let speed = baseSpeed;
+  let lastTime = 0;
+  let elapsed = 0;
+
+  const GRAVITY = 1700;
+  const JUMP_VEL = -620;
+
+  const nandu = {
+    x: 0, y: 0, w: 40, h: 46,
+    vy: 0,
+    onGround: true,
+    legPhase: 0,
+    duckAnim: 0
+  };
+
+  function resetNandu(){
+    nandu.x = W * 0.18;
+    nandu.y = groundY;
+    nandu.vy = 0;
+    nandu.onGround = true;
+  }
+
+  function jump(){
+    if (state !== 'playing') return;
+    if (nandu.onGround){
+      nandu.vy = JUMP_VEL;
+      nandu.onGround = false;
+    }
+  }
+
+  window.addEventListener('keydown', e=>{
+    const k = e.key.toLowerCase();
+    if (k === ' ' || k === 'arrowup' || k === 'w'){
+      e.preventDefault();
+      jump();
+    }
+  }, {passive:false});
+  canvas.addEventListener('pointerdown', jump);
+
+  // Obstaculos
+  let obstacles = [];
+  let spawnDist = 0;
+  const OB_TYPES = [
+    { type:'bush', w:30, h:34, color:'#3f5a34' },
+    { type:'log',  w:52, h:24, color:'#5a3f28' },
+    { type:'fence',w:14, h:52, color:'#8a6b45' },
+  ];
+
+  function nextSpawnGap(){
+    // el gap se achica un poco con la velocidad, con piso minimo
+    const base = 340;
+    const reduce = Math.min(140, (speed-baseSpeed)*0.6);
+    return base - reduce + Math.random()*160;
+  }
+
+  function spawnObstacle(){
+    const t = OB_TYPES[Math.floor(Math.random()*OB_TYPES.length)];
+    obstacles.push({
+      x: W + 40,
+      y: groundY - t.h,
+      w: t.w, h: t.h,
+      color: t.color,
+      type: t.type,
+      passed:false
+    });
+  }
+
+  // Decor de fondo (paralax)
+  let hills = [];
+  let clouds = [];
+  function makeDecor(){
+    hills = [];
+    for (let i=0;i<6;i++){
+      hills.push({ x: i*260, w: 220+Math.random()*80, h: 40+Math.random()*40 });
+    }
+    clouds = [];
+    for (let i=0;i<5;i++){
+      clouds.push({ x: Math.random()*W, y: 30+Math.random()*80, s: 0.6+Math.random()*0.8 });
+    }
+  }
+
+  let grassTufts = [];
+  function makeGrass(){
+    grassTufts = [];
+    for (let i=0;i<24;i++){
+      grassTufts.push({ x: Math.random()*W, sway: Math.random()*Math.PI*2, h:10+Math.random()*14 });
+    }
+  }
+
+  function update(dt){
+    elapsed += dt;
+    speed = baseSpeed + Math.min(260, elapsed*7); // acelera con el tiempo
+
+    // fisica del salto
+    nandu.vy += GRAVITY*dt;
+    nandu.y += nandu.vy*dt;
+    if (nandu.y >= groundY){
+      nandu.y = groundY;
+      nandu.vy = 0;
+      nandu.onGround = true;
+    }
+    if (nandu.onGround) nandu.legPhase += dt*18;
+
+    distance += speed*dt/40;
+    distVal.textContent = Math.floor(distance);
+
+    // obstaculos
+    spawnDist -= speed*dt;
+    if (spawnDist <= 0){
+      spawnObstacle();
+      spawnDist = nextSpawnGap();
+    }
+    obstacles.forEach(o=>{ o.x -= speed*dt; });
+    obstacles = obstacles.filter(o=>o.x+o.w > -20);
+
+    // colision (hitbox algo generosa para que se sienta justo)
+    const nx1 = nandu.x - nandu.w*0.32;
+    const nx2 = nandu.x + nandu.w*0.32;
+    const ny1 = nandu.y - nandu.h*0.85;
+    const ny2 = nandu.y + 6;
+    for (const o of obstacles){
+      const ox1 = o.x + 4, ox2 = o.x+o.w-4;
+      const oy1 = o.y, oy2 = o.y+o.h;
+      if (nx2 > ox1 && nx1 < ox2 && ny2 > oy1 && ny1 < oy2){
+        endGame();
+        break;
+      }
+    }
+
+    // decor paralax
+    hills.forEach(h=>{
+      h.x -= speed*dt*0.25;
+      if (h.x < -h.w) h.x += hills.length*260;
+    });
+    clouds.forEach(c=>{
+      c.x -= speed*dt*0.08;
+      if (c.x < -60) c.x = W+60;
+    });
+  }
+
+  // ---- DRAW ----
+  function drawBackground(t){
+    // sol
+    ctx.save();
+    ctx.fillStyle = '#ffe9b0';
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    ctx.arc(W*0.82, H*0.22, 40, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+
+    // nubes
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    clouds.forEach(c=>{
+      ctx.beginPath();
+      ctx.ellipse(c.x, c.y, 22*c.s, 10*c.s, 0, 0, Math.PI*2);
+      ctx.ellipse(c.x+16*c.s, c.y+4*c.s, 16*c.s, 8*c.s, 0, 0, Math.PI*2);
+      ctx.fill();
+    });
+    ctx.restore();
+
+    // lomas paralax
+    ctx.save();
+    ctx.fillStyle = 'rgba(60,30,20,0.35)';
+    hills.forEach(h=>{
+      ctx.beginPath();
+      ctx.ellipse(h.x + h.w/2, groundY+10, h.w/2, h.h, 0, Math.PI, 0);
+      ctx.fill();
+    });
+    ctx.restore();
+
+    // piso
+    ctx.fillStyle = '#4a3324';
+    ctx.fillRect(0, groundY+4, W, H-groundY-4);
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, groundY+4);
+    ctx.lineTo(W, groundY+4);
+    ctx.stroke();
+
+    // pasto
+    ctx.strokeStyle = '#2f3d1f';
+    ctx.lineWidth = 3;
+    grassTufts.forEach(g=>{
+      const sway = Math.sin(t*3 + g.sway)*3;
+      ctx.beginPath();
+      ctx.moveTo(g.x, groundY+4);
+      ctx.quadraticCurveTo(g.x+sway, groundY+4-g.h*0.6, g.x+sway*1.3, groundY+4-g.h);
+      ctx.stroke();
+      g.x -= speed_ref*0;
+    });
+  }
+  let speed_ref = 0;
+
+  function drawObstacle(o){
+    ctx.save();
+    if (o.type === 'bush'){
+      ctx.fillStyle = o.color;
+      ctx.beginPath();
+      ctx.ellipse(o.x+o.w/2, o.y+o.h*0.6, o.w/2, o.h*0.55, 0,0,Math.PI*2);
+      ctx.ellipse(o.x+o.w*0.3, o.y+o.h*0.3, o.w*0.32, o.h*0.4, 0,0,Math.PI*2);
+      ctx.ellipse(o.x+o.w*0.7, o.y+o.h*0.35, o.w*0.3, o.h*0.38, 0,0,Math.PI*2);
+      ctx.fill();
+    } else if (o.type === 'log'){
+      ctx.fillStyle = o.color;
+      ctx.fillRect(o.x, o.y+o.h*0.25, o.w, o.h*0.5);
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+      ctx.lineWidth = 2;
+      for (let i=1;i<4;i++){
+        ctx.beginPath();
+        ctx.moveTo(o.x + i*o.w/4, o.y+o.h*0.25);
+        ctx.lineTo(o.x + i*o.w/4, o.y+o.h*0.75);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#6b4a30';
+      ctx.beginPath();
+      ctx.ellipse(o.x+o.w, o.y+o.h*0.5, o.h*0.25, o.h*0.25, 0,0,Math.PI*2);
+      ctx.fill();
+    } else if (o.type === 'fence'){
+      ctx.fillStyle = o.color;
+      ctx.fillRect(o.x+o.w*0.35, o.y, o.w*0.3, o.h);
+      ctx.fillRect(o.x, o.y+o.h*0.2, o.w, 6);
+      ctx.fillRect(o.x, o.y+o.h*0.6, o.w, 6);
+    }
+    ctx.restore();
+  }
+
+  function drawNandu(){
+    ctx.save();
+    ctx.translate(nandu.x, nandu.y);
+
+    const airborne = !nandu.onGround;
+    const legSwing = airborne ? 0 : Math.sin(nandu.legPhase)*11;
+    const bodyTilt = airborne ? -0.12 : 0;
+
+    ctx.rotate(bodyTilt);
+
+    // patas
+    ctx.strokeStyle = '#3a2c1a';
+    ctx.lineWidth = 4;
+    if (airborne){
+      ctx.beginPath();
+      ctx.moveTo(-5, 12); ctx.lineTo(-9, 24);
+      ctx.moveTo(5, 12); ctx.lineTo(9, 22);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(-5, 12); ctx.lineTo(-5+legSwing*0.4, 26);
+      ctx.moveTo(5, 12); ctx.lineTo(5-legSwing*0.4, 26);
+      ctx.stroke();
+    }
+
+    // cuerpo
+    ctx.fillStyle = '#7d7361';
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 17, 14, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.fillStyle = '#a89b82';
+    ctx.beginPath();
+    ctx.ellipse(3, 6, 10, 9, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // cuello y cabeza (mas horizontal si esta saltando, dando sensacion de impulso)
+    ctx.strokeStyle = '#7d7361';
+    ctx.lineWidth = 8;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(8, -4);
+    ctx.lineTo(airborne ? 24 : 18, -22);
+    ctx.stroke();
+
+    ctx.fillStyle = '#8a8069';
+    ctx.beginPath();
+    ctx.ellipse(airborne?26:20, airborne?-24:-26, 6, 5, 0.2, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.fillStyle = '#e0b355';
+    ctx.beginPath();
+    ctx.moveTo(airborne?31:25, airborne?-25:-27);
+    ctx.lineTo(airborne?39:33, airborne?-23:-25);
+    ctx.lineTo(airborne?31:25, airborne?-21:-23);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#1a1a1a';
+    ctx.beginPath();
+    ctx.arc(airborne?28:22, airborne?-25:-28, 1.4, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function draw(t){
+    ctx.clearRect(0,0,W,H);
+    drawBackground(t);
+    obstacles.forEach(drawObstacle);
+    drawNandu();
+  }
+
+  function loop(ts){
+    if (!lastTime) lastTime = ts;
+    const dt = Math.min((ts-lastTime)/1000, 0.05);
+    lastTime = ts;
+
+    if (state === 'playing'){
+      update(dt);
+    }
+    draw(ts/1000);
+    requestAnimationFrame(loop);
+  }
+
+  function startGame(){
+    distance = 0;
+    elapsed = 0;
+    speed = baseSpeed;
+    obstacles = [];
+    spawnDist = 260;
+    distVal.textContent = 0;
+    bestVal.textContent = Math.floor(best);
+    resize();
+    makeDecor();
+    makeGrass();
+    resetNandu();
+    menu.classList.add('hidden');
+    gameOverScreen.classList.add('hidden');
+    hud.classList.remove('hidden');
+    state = 'playing';
+  }
+
+  function endGame(){
+    state = 'over';
+    hud.classList.add('hidden');
+    if (distance > best){ best = distance; }
+    finalScore.textContent = Math.floor(distance) + ' metros';
+    let msg = '¡Buena corrida!';
+    if (distance >= 400) msg = '¡Ñandú imparable! 🏆';
+    else if (distance >= 200) msg = '¡Excelente ritmo!';
+    else if (distance < 60) msg = 'Dale, probá de nuevo, seguro mejorás.';
+    finalLabel.textContent = msg;
+    gameOverScreen.classList.remove('hidden');
+  }
+
+  startBtn.addEventListener('click', startGame);
+  retryBtn.addEventListener('click', startGame);
+
+  resize();
+  makeDecor();
+  makeGrass();
+  resetNandu();
+  requestAnimationFrame(loop);
+})();
+</script>
+
+</body>
+</html>
